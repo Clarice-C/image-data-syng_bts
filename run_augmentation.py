@@ -6,8 +6,8 @@ import os
 
 # Get the directory where this script is located (all files are here)
 current_dir = os.path.dirname(os.path.abspath(__file__))
-# Use absolute path to avoid path issues on Windows
-input_path = current_dir  # Current directory (absolute path)
+# Input data lives in the raw-data subfolder
+input_path = os.path.join(current_dir, "raw-data")
 
 # Set input filename (without .csv extension)
 input_filename = "processed_train_136_full_model_data"

@@ -1,0 +1,68 @@
+---
+title: "Data Exploration"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: setup
+#| message: false
+
+library(tidyverse)
+library(readxl)
+library(gtsummary)
+```
+
+## Read Data
+
+```{r}
+#| label: read-data
+
+# Clinical has a 2-row header: row 1 = section group labels (merged cells),
+# row 2 = actual column names. Extract row 2 as col names, then read from row 3.
+clinical_col_names <- read_excel(
+  "raw-data/Clinical_and_Other_Features.xlsx",
+  skip = 1, n_max = 1, col_names = FALSE
+) |>
+  unlist(use.names = FALSE)
+
+clinical <- read_excel(
+  "raw-data/Clinical_and_Other_Features.xlsx",
+  skip = 2,
+  col_names = clinical_col_names
+)
+
+imaging <- read_excel("raw-data/Imaging_Features.xlsx")
+```
+
+## Clinical & Other Features
+
+```{r}
+#| label: glimpse-clinical
+
+glimpse(clinical)
+```
+
+```{r}
+#| label: tbl-clinical
+#| tbl-cap: "Clinical and Other Features Summary"
+
+clinical |>
+  tbl_summary()
+```
+
+## Imaging Features
+
+```{r}
+#| label: glimpse-imaging
+
+glimpse(imaging)
+```
+
+```{r}
+#| label: tbl-imaging
+#| tbl-cap: "Imaging Features Summary"
+
+imaging |>
+  tbl_summary()
+```
