@@ -2,6 +2,11 @@
 title: "Data Exploration"
 format: html
 editor: visual
+execute:
+  echo: false
+  warning: false
+  message: false
+  error: false
 ---
 
 ```{r}
@@ -11,6 +16,8 @@ editor: visual
 library(tidyverse)
 library(readxl)
 library(gtsummary)
+library(corrplot)
+library(patchwork)
 ```
 
 ## Read Data
@@ -31,38 +38,262 @@ clinical <- read_excel(
   skip = 2,
   col_names = clinical_col_names
 )
+ 
+clin <- clinical %>% janitor::clean_names()
+clin <- clin[2:nrow(clin), ]
 
 imaging <- read_excel("raw-data/Imaging_Features.xlsx")
 ```
 
-## Clinical & Other Features
+# Outcomes
 
 ```{r}
-#| label: glimpse-clinical
-
-glimpse(clinical)
+clin <- clin %>%
+  mutate(
+    response = factor(
+      pathologic_response_to_neoadjuvant_therapy,
+      levels = 1:5,
+      labels = c(
+        "Complete response",
+        "Not complete response",
+        "DCIS only remaining",
+        "LCIS only remaining",
+        "Treatment response assessment unavailable"
+      )
+    ),
+    response_binary = factor(
+      case_when(
+        response %in% c("Complete response", "DCIS only remaining", "LCIS only remaining") ~ "Response",
+        response == "Not complete response" ~ "No response",
+        .default = NA
+      ),
+      levels = c("Response", "No response")
+    )
+  )
 ```
 
-```{r}
-#| label: tbl-clinical
-#| tbl-cap: "Clinical and Other Features Summary"
 
-clinical |>
+```{r}
+clin %>% select(response, response_binary) %>%
   tbl_summary()
 ```
 
-## Imaging Features
-
 ```{r}
-#| label: glimpse-imaging
+#| label: subtype
 
-glimpse(imaging)
+clin <- clin %>%
+  mutate(
+    across(c(er, pr, her2), as.numeric),
+    subtype = factor(
+      case_when(
+        (er == 1 | pr == 1) & her2 == 0 ~ "Luminal A",
+        (er == 1 | pr == 1) & her2 == 1 ~ "Luminal B",
+        er == 0 & pr == 0 & her2 == 1   ~ "HER2",
+        er == 0 & pr == 0 & her2 == 0   ~ "Triple-negative"
+      ),
+      levels = c("Luminal A", "Luminal B", "HER2", "Triple-negative")
+    ),
+    subtype_luminal_a = factor(
+      case_when(
+        subtype == "Luminal A" ~ "Luminal A",
+        !is.na(subtype)        ~ "Other"
+      ),
+      levels = c("Luminal A", "Other")
+    )
+  )
 ```
 
 ```{r}
-#| label: tbl-imaging
-#| tbl-cap: "Imaging Features Summary"
-
-imaging |>
+clin %>% select(subtype) %>%
   tbl_summary()
+```
+
+
+
+# Imaging Features
+
+
+```{r}
+names(imaging)
+``` 
+
+```{r}
+#| label: imaging-corr
+
+df_imaging <- imaging |>
+  select(where(is.numeric)) |>
+  janitor::clean_names()
+
+colnames(df_imaging) <- abbreviate(
+  colnames(df_imaging),
+  minlength = 3,
+  use.classes = TRUE
+)
+
+cor_matrix <- cor(df_imaging, use = "pairwise.complete.obs")
+
+corrplot(
+  cor_matrix,
+  method   = "color",
+  type     = "upper",
+  order    = "hclust",
+  tl.cex   = 0.6,
+  tl.col   = "black",
+  addCoef.col = NULL,
+  col      = colorRampPalette(c("#2166AC", "white", "#D6604D"))(200),
+  title    = "Imaging Feature Correlations",
+  mar      = c(0, 0, 2, 0)
+)
+```
+
+
+
+
+
+## By Group
+
+Group descriptions:
+
+| Group | n | What it is |
+|---|---|---|
+| Kinetic_DT | 18 | F1_DT delay-time curve features (both sequences, all T11/T12 thresholds) |
+| Tumor_Morphology | 10 | Size/shape + BE descriptors (major axis, volume, ASD, MF, solidity, elongation, Euler) |
+| GLCM_Tumor | 22 | Haralick texture on tumor |
+| Kinetic_Curve | 4 | Characteristic-curve kinetics (max enhancement, time-to-peak, uptake, washout) |
+| FGT_Volume | 49 | Breast/tissue volume, density, enhancement-ratio features (T1 + PostCon) |
+| Enh_Variance | 4 | Tumor enhancement-variance dynamics |
+| Kinetic_Grouping | 76 | All Grouping_based_* slope features (tumor 2D/3D, tissue T1/PostCon) |
+| Spatial | 4 | Moran's I + enhancement-cluster features |
+| DFT_Moment | 22 | DFT moment invariants (2D/3D) |
+| Dynamic_Texture | 22 | DHOG/DLBP features |
+| GLCM_Tissue_T1 | 22 | Haralick texture on tissue (T1) |
+| GLCM_Tissue_PostCon | 22 | Haralick texture on tissue (PostCon) |
+| Margin_Uptake | 5 | Margin gradient, uptake variance, RGH variance |
+| SER_Tumor | 36 | Parametric-map SER features on tumor |
+| PE_Tumor | 27 | Parametric-map PE features on tumor |
+| Washin_Tumor | 26 | Parametric-map Washin features on tumor |
+| SER_Tissue_T1 | 27 | SER features on tissue (T1) |
+| PE_Tissue_T1 | 27 | PE features on tissue (T1) |
+| Washin_Tissue_T1 | 26 | Washin features on tissue (T1) |
+| SER_Tissue_PostCon | 27 | SER features on tissue (PostCon) |
+| PE_Tissue_PostCon | 27 | PE features on tissue (PostCon) |
+| Washin_Tissue_PostCon | 26 | Washin features on tissue (PostCon) |
+
+```{r}
+#| label: group-setup
+
+gr <- read.csv(here::here("raw-data", "variable_groups.csv"))
+
+# clean variable names to match df_imaging
+gr <- gr |>
+  mutate(variable_clean = janitor::make_clean_names(variable))
+```
+
+```{r}
+#| label: intra-group-corr
+#| fig-height: 8
+
+# Full correlation matrix (unabbreviated names for joining)
+df_imaging_raw <- imaging |>
+  select(where(is.numeric)) |>
+  janitor::clean_names()
+
+cor_full <- cor(df_imaging_raw, use = "pairwise.complete.obs")
+
+groups <- unique(gr$group)
+groups <- groups[groups != "ID"]  # drop patient ID
+
+for (grp in groups) {
+  vars <- gr$variable_clean[gr$group == grp]
+  vars <- intersect(vars, colnames(df_imaging_raw))
+  if (length(vars) < 2) next
+
+  mat <- cor_full[vars, vars]
+
+  corrplot(
+    mat,
+    method  = "color",
+    type    = "upper",
+    order   = "hclust",
+    tl.cex  = 0.55,
+    tl.col  = "black",
+    col     = colorRampPalette(c("#2166AC", "white", "#D6604D"))(200),
+    title   = paste("Intra-group:", grp),
+    mar     = c(0, 0, 2, 0)
+  )
+}
+```
+
+```{r}
+#| label: inter-group-corr
+#| fig-height: 6
+#| fig-width: 12
+
+group_labels <- groups
+
+# Inter-group block matrix (mean |r| between each pair of groups)
+block_cor <- matrix(NA, length(group_labels), length(group_labels),
+                    dimnames = list(group_labels, group_labels))
+
+for (i in seq_along(group_labels)) {
+  for (j in seq_along(group_labels)) {
+    vi <- intersect(gr$variable_clean[gr$group == group_labels[i]], colnames(df_imaging_raw))
+    vj <- intersect(gr$variable_clean[gr$group == group_labels[j]], colnames(df_imaging_raw))
+    if (length(vi) == 0 || length(vj) == 0) next
+    block_cor[i, j] <- mean(abs(cor_full[vi, vj]), na.rm = TRUE)
+  }
+}
+
+# Intra-group mean |r| (upper triangle only, no self-correlation)
+intra <- tibble(
+  group = group_labels,
+  mean_abs_r = map_dbl(group_labels, function(g) {
+    v <- intersect(gr$variable_clean[gr$group == g], colnames(df_imaging_raw))
+    if (length(v) < 2) return(NA_real_)
+    m <- cor_full[v, v]
+    mean(abs(m[upper.tri(m)]), na.rm = TRUE)
+  })
+) |>
+  filter(!is.na(mean_abs_r)) |>
+  arrange(desc(mean_abs_r))
+
+# Bar chart: intra-group
+p_bar <- ggplot(intra, aes(x = reorder(group, mean_abs_r), y = mean_abs_r)) +
+  geom_col(fill = "#2166AC", width = 0.6) +
+  geom_text(aes(label = round(mean_abs_r, 2)), hjust = -0.15, size = 3) +
+  coord_flip(ylim = c(0, 1)) +
+  labs(
+    title = "Intra-group mean |r|",
+    x = NULL, y = "Mean |r|"
+  ) +
+  theme_minimal(base_size = 11)
+
+# Heatmap: inter-group as ggplot tile (upper triangle only)
+inter_df <- as.data.frame(as.table(block_cor)) |>
+  rename(group_x = Var1, group_y = Var2, mean_abs_r = Freq) |>
+  filter(
+    match(as.character(group_x), group_labels) <= match(as.character(group_y), group_labels)
+  ) |>
+  mutate(
+    group_x = factor(group_x, levels = group_labels),
+    group_y = factor(group_y, levels = rev(group_labels))
+  )
+
+p_heat <- ggplot(inter_df, aes(x = group_x, y = group_y, fill = mean_abs_r)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(mean_abs_r, 2)), size = 2.8) +
+  scale_fill_gradient(low = "white", high = "#D6604D", limits = c(0, 1), na.value = "grey95") +
+  labs(title = "Inter-group mean |r|", x = NULL, y = NULL, fill = "Mean |r|") +
+  theme_minimal(base_size = 11) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p_bar + p_heat + plot_layout(widths = c(1, 1.4))
+```
+
+
+# Association with Outcome
+
+
+```{r}
+
 ```

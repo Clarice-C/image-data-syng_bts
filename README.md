@@ -36,7 +36,7 @@ pip install torch numpy pandas scipy scikit-learn matplotlib seaborn tqdm tensor
 
 ### 1. Prepare your input data
 
-Place your CSV file in the repository directory. The file should have:
+Place your CSV file in the `raw-data` repository directory. The file should have:
 - Numeric feature columns
 - An optional `groups` column (binary 0/1) for conditional generation (CVAE)
 - An optional `groups2` column for multi-conditional generation (MultiCVAE)
