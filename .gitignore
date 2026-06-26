@@ -1,0 +1,9 @@
+.DS_Store
+raw-data/*
+data/*
+.Rproj.user
+archive/*
+.Rhistory
+*.html
+README_files
+.vscode/*
